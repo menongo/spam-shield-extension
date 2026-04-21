@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Spam Shield — Icon Generator</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; background: #f8fafc; }
+    h2 { margin-bottom: 16px; }
+    .previews { display: flex; gap: 24px; align-items: flex-end; margin-bottom: 20px; }
+    .preview { text-align: center; }
+    .preview canvas { display: block; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); margin-bottom: 6px; }
+    .preview span { font-size: 12px; color: #64748b; }
+    .btn { background: #4F46E5; color: white; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn:hover { background: #4338CA; }
+    p { color: #64748b; margin-bottom: 16px; font-size: 14px; }
+    .dl-single { display: inline-block; margin-top: 6px; font-size: 11px; color: #4F46E5; text-decoration: underline; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>Spam Shield — Icon Generator</h2>
+  <p>Click the button below to generate and download the three icon sizes needed for the extension.</p>
+  <div class="previews" id="previews"></div>
+  <button class="btn" id="downloadAll">Download All Icons</button>
+
+  <script>
+    function drawIcon(size) {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const r = size * 0.15; // border-radius
+
+      // Background: rounded rect, indigo
+      ctx.beginPath();
+      ctx.moveTo(r, 0);
+      ctx.lineTo(size - r, 0);
+      ctx.quadraticCurveTo(size, 0, size, r);
+      ctx.lineTo(size, size - r);
+      ctx.quadraticCurveTo(size, size, size - r, size);
+      ctx.lineTo(r, size);
+      ctx.quadraticCurveTo(0, size, 0, size - r);
+      ctx.lineTo(0, r);
+      ctx.quadraticCurveTo(0, 0, r, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#4F46E5';
+      ctx.fill();
+
+      // Draw shield shape
+      const cx = size / 2;
+      const cy = size / 2;
+      const sw = size * 0.55;
+      const sh = size * 0.62;
+      const sx = cx - sw / 2;
+      const sy = cy - sh / 2 + size * 0.02;
+
+      ctx.beginPath();
+      ctx.moveTo(cx, sy);
+      ctx.bezierCurveTo(cx + sw * 0.05, sy, cx + sw / 2, sy + sh * 0.05, cx + sw / 2, sy + sh * 0.35);
+      ctx.bezierCurveTo(cx + sw / 2, sy + sh * 0.65, cx, sy + sh, cx, sy + sh);
+      ctx.bezierCurveTo(cx, sy + sh, cx - sw / 2, sy + sh * 0.65, cx - sw / 2, sy + sh * 0.35);
+      ctx.bezierCurveTo(cx - sw / 2, sy + sh * 0.05, cx - sw * 0.05, sy, cx, sy);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = size * 0.04;
+      ctx.stroke();
+
+      // Draw checkmark
+      const ck = size * 0.13;
+      const checkCy = cy + size * 0.04;
+      ctx.beginPath();
+      ctx.moveTo(cx - ck, checkCy);
+      ctx.lineTo(cx - ck * 0.1, checkCy + ck * 0.8);
+      ctx.lineTo(cx + ck, checkCy - ck * 0.6);
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = size * 0.07;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      return canvas;
+    }
+
+    const sizes = [16, 48, 128];
+    const previews = document.getElementById('previews');
+
+    const canvases = {};
+    sizes.forEach(size => {
+      const canvas = drawIcon(size);
+      canvases[size] = canvas;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'preview';
+
+      // Scale up small canvases for visibility
+      canvas.style.width  = Math.max(size, 64) + 'px';
+      canvas.style.height = Math.max(size, 64) + 'px';
+      canvas.style.imageRendering = 'pixelated';
+
+      const label = document.createElement('span');
+      label.textContent = `${size}×${size}`;
+
+      // Individual download link — created here while canvas is in scope
+      const dlLink = document.createElement('a');
+      dlLink.textContent = `↓ Download`;
+      dlLink.download = `icon${size}.png`;
+      dlLink.href = canvas.toDataURL('image/png');
+      dlLink.className = 'dl-single';
+
+      wrapper.appendChild(canvas);
+      wrapper.appendChild(document.createElement('br'));
+      wrapper.appendChild(label);
+      wrapper.appendChild(document.createElement('br'));
+      wrapper.appendChild(dlLink);
+      previews.appendChild(wrapper);
+    });
+
+    // Download all — stagger by 400ms so the browser doesn't block them
+    document.getElementById('downloadAll').addEventListener('click', () => {
+      sizes.forEach((size, i) => {
+        setTimeout(() => {
+          const link = document.createElement('a');
+          link.download = `icon${size}.png`;
+          link.href = canvases[size].toDataURL('image/png');
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }, i * 400);
+      });
+    });
+  </script>
+</body>
+</html>
