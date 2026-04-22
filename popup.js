@@ -10,34 +10,113 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/**
- * Search `text` for `pattern`. If found, return the matched string plus
- * up to `ctx` characters of surrounding context, split into three parts
- * so the UI can highlight just the matched portion.
- */
+/* LOCAL EVALUATION DISABLED — AI call is required
 function extractSnippet(text, pattern, ctx = 60) {
-  // Clone pattern without flags that might cause lastIndex issues
   const re = new RegExp(pattern.source, 'i');
   const m = re.exec(text);
   if (!m) return null;
-
   const matchStart = m.index;
   const matchEnd   = m.index + m[0].length;
   const start      = Math.max(0, matchStart - ctx);
   const end        = Math.min(text.length, matchEnd + ctx);
-
-  // Collapse whitespace/newlines in context fragments
   const clean = s => s.replace(/\s+/g, ' ');
-
   return {
     before:  (start > 0 ? '…' : '') + clean(text.slice(start, matchStart)),
     matched: clean(m[0]),
     after:   clean(text.slice(matchEnd, end)) + (end < text.length ? '…' : '')
   };
 }
+*/
 
-// ─── Spam Detection Engine ────────────────────────────────────────────────────
+// ─── PII Masking ──────────────────────────────────────────────────────────────
+//
+// Applied to subject and body BEFORE sending to any external AI provider.
+// The heuristic engine runs entirely on-device and is not affected.
+// senderVal and headerData are not masked — they contain technical spam signals
+// (domain names, DKIM selectors, TLS flags) that are needed for accurate detection.
 
+function maskPII(text) {
+  if (!text) return text;
+  let out = text;
+
+  // ── Email addresses ────────────────────────────────────────────────────────
+  // Catches user@domain.tld in any position; run first so later patterns
+  // don't partially overlap with the @ character.
+  out = out.replace(
+    /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g,
+    '[EMAIL REDACTED]'
+  );
+
+  // ── Phone numbers ──────────────────────────────────────────────────────────
+  // Formatted: (555) 555-1234 / 555-555-1234 / +1 555.555.1234
+  out = out.replace(
+    /(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}/g,
+    '[PHONE REDACTED]'
+  );
+
+  // ── Social Security Numbers ────────────────────────────────────────────────
+  // Only the canonical dashed form (XXX-XX-XXXX) to avoid false positives
+  out = out.replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN REDACTED]');
+
+  // ── Payment card numbers ───────────────────────────────────────────────────
+  // 4×4 groups with space or dash (Visa / Mastercard / Discover)
+  out = out.replace(/\b\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{4}\b/g, '[CARD REDACTED]');
+  // Amex: 4-6-5
+  out = out.replace(/\b\d{4}[\s\-]\d{6}[\s\-]\d{5}\b/g, '[CARD REDACTED]');
+  // 16-digit run with no separators
+  out = out.replace(/\b\d{16}\b/g, '[CARD REDACTED]');
+
+  // ── IPv4 addresses ─────────────────────────────────────────────────────────
+  out = out.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP REDACTED]');
+
+  // ── Physical street addresses ──────────────────────────────────────────────
+  // Matches "123 Main Street", "45 Oak Ave.", "7 Elm Blvd" etc.
+  out = out.replace(
+    /\b\d{1,5}\s+[A-Za-z]+(?:\s+[A-Za-z]+)?\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct|Place|Pl|Circle|Cir|Trail|Trl)\.?\b/gi,
+    '[ADDRESS REDACTED]'
+  );
+
+  // ── Date of birth (labelled only) ──────────────────────────────────────────
+  out = out.replace(
+    /\b(?:dob|date of birth|born(?:\s+on)?)[:\s]+[^\n,;]{1,40}/gi,
+    '[DOB REDACTED]'
+  );
+
+  // ── Bank routing number (labelled) ────────────────────────────────────────
+  out = out.replace(
+    /\b(?:routing|aba)(?:\s+(?:number|no|#))?[:\s#]+\d{9}\b/gi,
+    '[ROUTING REDACTED]'
+  );
+
+  // ── Bank account number (labelled) ────────────────────────────────────────
+  out = out.replace(
+    /\b(?:account|acct)(?:\s+(?:number|no|#))?[:\s#]+\d{6,17}\b/gi,
+    '[ACCOUNT REDACTED]'
+  );
+
+  // ── Passport number (labelled) ────────────────────────────────────────────
+  out = out.replace(
+    /\bpassport(?:\s+(?:number|no|#))?[:\s#]+[A-Z0-9]{6,9}\b/gi,
+    '[PASSPORT REDACTED]'
+  );
+
+  // ── Driver's licence number (labelled) ────────────────────────────────────
+  out = out.replace(
+    /\b(?:driver'?s?\s+)?(?:license|licence|dl|dlno)(?:\s+(?:number|no|#))?[:\s#]+[A-Z0-9]{5,15}\b/gi,
+    '[DL REDACTED]'
+  );
+
+  // ── National / health insurance ID (labelled) ─────────────────────────────
+  out = out.replace(
+    /\b(?:national\s+id|medicare|medicaid|insurance\s+(?:id|number|no))(?:\s+(?:number|no|#))?[:\s#]+[A-Z0-9]{5,20}\b/gi,
+    '[ID REDACTED]'
+  );
+
+  return out;
+}
+
+// ─── Spam Detection Engine (disabled — AI call required) ─────────────────────
+/*
 const SPAM_RULES = {
   critical: [
     { pattern: /you('ve| have) won\b/i,                                     label: 'Claims you won a prize',                    severity: 'high' },
@@ -91,10 +170,7 @@ const SPAM_RULES = {
 
 const WEIGHTS = { critical: 15, high: 8, medium: 3 };
 
-/**
- * Core analysis. Returns { score, verdict, findings[] }
- * Each finding: { label, severity, source, snippet: {before, matched, after} | null }
- */
+// Core analysis. Returns { score, verdict, findings[] }
 function analyzeEmail(senderVal, subjectVal, bodyVal) {
   const findings = [];
   let score = 0;
@@ -224,8 +300,187 @@ function analyzeEmail(senderVal, subjectVal, bodyVal) {
 
   return { score, verdict, findings };
 }
+*/
 
-// ─── Claude AI Analysis ───────────────────────────────────────────────────────
+// ─── Header Authenticity Analysis ────────────────────────────────────────────
+
+/** Extract the apex domain (last two labels) for alignment comparisons. */
+function apexDomain(str) {
+  if (!str) return '';
+  // Strip angle-bracket email syntax: "Name <user@domain.com>" → "domain.com"
+  const angle = str.match(/<([^>]+)>/);
+  const addr  = angle ? angle[1] : str;
+  const at    = addr.lastIndexOf('@');
+  const dom   = (at >= 0 ? addr.slice(at + 1) : addr).toLowerCase().trim();
+  // Remove "via " prefix Gmail sometimes prepends
+  const clean = dom.replace(/^via\s+/i, '').trim();
+  const parts = clean.split('.');
+  return parts.length >= 2 ? parts.slice(-2).join('.') : clean;
+}
+
+/** Returns true when two domain strings share the same registrable domain. */
+function domainsAlign(a, b) {
+  if (!a || !b) return false;
+  return apexDomain(a) === apexDomain(b);
+}
+
+/**
+ * Analyse header fields for sender authenticity signals.
+ * @param {Object} h  { from, replyTo, mailedBy, signedBy, security, date }
+ * @returns {{ checks, probability, addedSpamScore }}
+ */
+function analyzeHeaders(h) {
+  h = h || {};
+  const from     = (h.from     || '').trim();
+  const replyTo  = (h.replyTo  || '').trim();
+  const mailedBy = (h.mailedBy || '').trim().replace(/^via\s+/i, '');
+  const signedBy = (h.signedBy || '').trim();
+  const security = (h.security || '').trim();
+  const dateStr  = (h.date     || '').trim();
+
+  const fromDomain   = apexDomain(from);
+  // Display name = text before the first '<'
+  const displayName  = (from.match(/^([^<]+)</) || [])[1] || '';
+
+  const checks  = [];
+  let demerits  = 0;
+  let hasData   = false;
+
+  // ── 1. Mailed-by ↔ From domain (weight 35) ────────────────────────────────
+  if (mailedBy && fromDomain) {
+    hasData = true;
+    if (domainsAlign(mailedBy, fromDomain)) {
+      checks.push({ label: 'Mailed-by matches From domain',
+        detail: `${apexDomain(mailedBy)} ↔ ${fromDomain}`, status: 'pass' });
+    } else {
+      demerits += 35;
+      checks.push({ label: 'Mailed-by does NOT match From domain — likely spoofed',
+        detail: `Mailed-by: ${mailedBy}  ≠  From: ${fromDomain}`, status: 'fail' });
+    }
+  } else if (mailedBy || fromDomain) {
+    hasData = true;
+    checks.push({ label: 'Mailed-by could not be fully compared',
+      detail: mailedBy ? `Mailed-by: ${mailedBy}` : 'From domain not detected', status: 'skip' });
+  }
+
+  // ── 2. DKIM Signed-by ↔ From domain (weight 30) ───────────────────────────
+  if (signedBy && fromDomain) {
+    hasData = true;
+    if (domainsAlign(signedBy, fromDomain)) {
+      checks.push({ label: 'DKIM signature matches From domain',
+        detail: `Signed-by: ${signedBy}`, status: 'pass' });
+    } else {
+      demerits += 30;
+      checks.push({ label: 'DKIM signature domain mismatch',
+        detail: `Signed-by: ${signedBy}  ≠  From: ${fromDomain}`, status: 'fail' });
+    }
+  } else if (fromDomain) {
+    hasData = true;
+    if (!signedBy) {
+      demerits += 15;
+      checks.push({ label: 'No DKIM signature found',
+        detail: 'Cannot cryptographically verify the sender', status: 'warn' });
+    }
+  }
+
+  // ── 3. Reply-To ↔ From domain (weight 20) ─────────────────────────────────
+  if (replyTo && fromDomain) {
+    hasData = true;
+    const rtDomain = apexDomain(replyTo);
+    if (rtDomain && !domainsAlign(rtDomain, fromDomain)) {
+      demerits += 20;
+      checks.push({ label: 'Reply-To redirects replies to a different domain',
+        detail: `Replies → ${rtDomain}  ≠  From: ${fromDomain}`, status: 'fail' });
+    } else {
+      checks.push({ label: 'Reply-To aligns with sender domain',
+        detail: `Replies stay within ${fromDomain}`, status: 'pass' });
+    }
+  }
+
+  // ── 4. TLS encryption (weight 10) ─────────────────────────────────────────
+  if (security) {
+    hasData = true;
+    if (/tls/i.test(security)) {
+      checks.push({ label: 'TLS encryption present',
+        detail: security, status: 'pass' });
+    } else {
+      demerits += 10;
+      checks.push({ label: 'No TLS encryption detected',
+        detail: `Security: ${security}`, status: 'warn' });
+    }
+  }
+
+  // ── 5. Display name brand spoofing (weight 25) ────────────────────────────
+  const KNOWN_BRANDS = {
+    paypal: 'paypal.com', amazon: 'amazon.com', apple: 'apple.com',
+    google: 'google.com', microsoft: 'microsoft.com', netflix: 'netflix.com',
+    fedex: 'fedex.com', ups: 'ups.com', dhl: 'dhl.com', usps: 'usps.com',
+    chase: 'chase.com', wellsfargo: 'wellsfargo.com',
+    bankofamerica: 'bankofamerica.com', citibank: 'citi.com',
+    instagram: 'instagram.com', facebook: 'meta.com', twitter: 'twitter.com'
+  };
+  if (displayName && fromDomain) {
+    hasData = true;
+    const nameLower = displayName.toLowerCase();
+    let spoofFound = false;
+    for (const [brand, legitDomain] of Object.entries(KNOWN_BRANDS)) {
+      if (nameLower.includes(brand) && !domainsAlign(fromDomain, legitDomain)) {
+        demerits += 25;
+        checks.push({ label: `Display name impersonates "${brand}"`,
+          detail: `Name: "${displayName.trim()}" but domain is ${fromDomain}`, status: 'fail' });
+        spoofFound = true;
+        break;
+      }
+    }
+    if (!spoofFound) {
+      checks.push({ label: 'No brand impersonation in display name',
+        detail: `Sender: ${displayName.trim()}`, status: 'pass' });
+    }
+  }
+
+  // ── 6. Date validity ──────────────────────────────────────────────────────
+  if (dateStr) {
+    hasData = true;
+    const parsed = new Date(dateStr);
+    if (isNaN(parsed.getTime())) {
+      demerits += 8;
+      checks.push({ label: 'Email date is unparseable',
+        detail: `Date: ${dateStr}`, status: 'warn' });
+    } else if (parsed.getTime() - Date.now() > 5 * 60 * 1000) {
+      demerits += 15;
+      checks.push({ label: 'Email date is in the future — likely forged',
+        detail: parsed.toUTCString(), status: 'fail' });
+    } else {
+      checks.push({ label: 'Email date is valid',
+        detail: parsed.toUTCString(), status: 'pass' });
+    }
+  }
+
+  // Max possible demerits across all checks: 35+30+20+10+25+15 = 135
+  const MAX = 135;
+  const addedSpamScore = hasData ? Math.round((demerits / MAX) * 30) : 0;
+  const probability    = hasData ? Math.max(0, Math.round(100 - (demerits / MAX) * 100)) : null;
+
+  return { checks, probability, addedSpamScore };
+}
+
+/** Read header input fields for a given panel prefix ('em' or 'mn'). */
+function readHeaderFields(prefix) {
+  const v = id => {
+    const el = document.getElementById(`hdr-${id}-${prefix}`);
+    return el ? el.value.trim() : '';
+  };
+  return {
+    from:     v('from'),
+    replyTo:  v('replyto'),
+    mailedBy: v('mailedby'),
+    signedBy: v('signedby'),
+    security: v('security'),
+    date:     v('date'),
+  };
+}
+
+// ─── AI Analysis Functions ────────────────────────────────────────────────────
 
 async function analyzeWithClaude(apiKey, senderVal, subjectVal, bodyVal) {
   const prompt = `You are a spam detection expert. Analyze the following email and respond ONLY with a JSON object.
@@ -287,6 +542,66 @@ JSON format:
   return parsed;
 }
 
+async function analyzeWithOpenRouter(orKey, orModel, senderVal, subjectVal, bodyVal) {
+  const prompt = `You are a spam detection expert. Analyze the following email and respond ONLY with a JSON object.
+
+Sender: ${senderVal || '(not provided)'}
+Subject: ${subjectVal || '(not provided)'}
+Body:
+${bodyVal || '(not provided)'}
+
+JSON format:
+{
+  "verdict": "spam" | "suspicious" | "safe",
+  "score": <0-100>,
+  "findings": [
+    {
+      "label": "<specific reason>",
+      "severity": "high" | "medium" | "low" | "clean",
+      "source": "Sender" | "Subject" | "Body" | null,
+      "quote": "<exact short phrase from the email that is suspicious, or null>"
+    }
+  ]
+}`;
+
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${orKey}`,
+      'HTTP-Referer': 'https://github.com/spam-shield-extension',
+      'X-Title': 'Spam Shield'
+    },
+    body: JSON.stringify({
+      model: orModel || 'anthropic/claude-haiku-4-5',
+      max_tokens: 768,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `OpenRouter API error ${res.status}`);
+  }
+
+  const data = await res.json();
+  const text = (data.choices[0].message.content || '').trim();
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Invalid response from OpenRouter');
+
+  const parsed = JSON.parse(jsonMatch[0]);
+
+  // Normalise findings to match our snippet format
+  parsed.findings = (parsed.findings || []).map(f => ({
+    label:    f.label,
+    severity: f.severity,
+    source:   f.source || null,
+    snippet:  f.quote ? { before: '', matched: f.quote, after: '' } : null
+  }));
+
+  return parsed;
+}
+
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 
 const $ = id => document.getElementById(id);
@@ -303,7 +618,7 @@ function setLoadingBtn(btn, loading, originalHTML) {
 
 // ─── Render Results ───────────────────────────────────────────────────────────
 
-function renderResults({ score, verdict, findings }) {
+function renderResults({ score, verdict, findings, authResult }) {
   const verdictBadge  = $('verdictBadge');
   const verdictIcon   = $('verdictIcon');
   const verdictLabel  = $('verdictLabel');
@@ -319,18 +634,52 @@ function renderResults({ score, verdict, findings }) {
   };
   const c = config[verdict] || config.safe;
 
-  verdictBadge.className  = `verdict-badge ${c.cls}`;
+  verdictBadge.className   = `verdict-badge ${c.cls}`;
   verdictIcon.textContent  = c.icon;
   verdictLabel.textContent = c.label;
   scoreValue.textContent   = score;
 
   setTimeout(() => { scoreBarFill.style.width = `${score}%`; }, 50);
 
-  // Show "Flagged sections" header only when there are real findings
+  // ── Sender Authenticity section ──────────────────────────────────────────────
+  const authSection = $('authSection');
+  const authBadge   = $('authBadge');
+  const authChecks  = $('authChecks');
+
+  if (authResult && authResult.checks.length > 0) {
+    authSection.style.display = 'block';
+
+    const { probability } = authResult;
+    let authLevel, authCls;
+    if      (probability === null) { authLevel = 'UNKNOWN'; authCls = 'auth-unknown'; }
+    else if (probability >= 75)    { authLevel = 'HIGH';    authCls = 'auth-high';    }
+    else if (probability >= 45)    { authLevel = 'MEDIUM';  authCls = 'auth-medium';  }
+    else                           { authLevel = 'LOW';     authCls = 'auth-low';     }
+
+    authBadge.textContent = probability !== null ? `${authLevel}  ${probability}%` : 'UNKNOWN';
+    authBadge.className   = `auth-badge ${authCls}`;
+
+    const statusIcons = { pass: '✅', fail: '🔴', warn: '⚠️', skip: '➖' };
+    authChecks.innerHTML = '';
+    for (const chk of authResult.checks) {
+      const row = document.createElement('div');
+      row.className = `auth-check-row auth-check-${chk.status}`;
+      row.innerHTML = `
+        <span class="auth-check-icon">${statusIcons[chk.status] || '•'}</span>
+        <div class="auth-check-body">
+          <span class="auth-check-label">${escapeHtml(chk.label)}</span>
+          <span class="auth-check-detail">${escapeHtml(chk.detail)}</span>
+        </div>`;
+      authChecks.appendChild(row);
+    }
+  } else {
+    authSection.style.display = 'none';
+  }
+
+  // ── Spam findings ────────────────────────────────────────────────────────────
   const hasRealFindings = findings.some(f => f.severity !== 'clean');
   findingsHdr.style.display = hasRealFindings ? 'flex' : 'none';
 
-  // Render findings
   findingsEl.innerHTML = '';
   const severityIcons = { high: '🔴', medium: '🟡', low: '🔵', clean: '✅' };
 
@@ -339,7 +688,6 @@ function renderResults({ score, verdict, findings }) {
     const div = document.createElement('div');
     div.className = `finding-item ${itemClass}`;
 
-    // Header row: icon + label + source badge
     const sourceBadge = f.source
       ? `<span class="finding-source">${escapeHtml(f.source)}</span>`
       : '';
@@ -372,29 +720,85 @@ function renderResults({ score, verdict, findings }) {
 
 // ─── Core analysis runner (shared by both modes) ──────────────────────────────
 
-async function runAnalysis(senderVal, subjectVal, bodyVal, triggerBtn, originalBtnHTML) {
+async function runAnalysis(senderVal, subjectVal, bodyVal, headerData, triggerBtn, originalBtnHTML) {
   setLoadingBtn(triggerBtn, true);
   $('results').style.display = 'none';
 
   try {
-    const stored = await new Promise(res => chrome.storage.local.get(['apiKey'], res));
-    const key    = stored.apiKey;
+    const stored = await new Promise(res =>
+      chrome.storage.local.get(['apiKey', 'orKey', 'orModel', 'aiProvider'], res)
+    );
+    const claudeKey  = stored.apiKey   || '';
+    const orKey      = stored.orKey    || '';
+    const orModel    = stored.orModel  || 'anthropic/claude-haiku-4-5';
+    const preference = stored.aiProvider || 'anthropic'; // 'anthropic' | 'openrouter'
+
+    const hasAnthropic   = claudeKey.startsWith('sk-ant-');
+    const hasOpenRouter  = orKey.startsWith('sk-or-');
+
+    // No API key configured — send user to settings to add one
+    if (!hasAnthropic && !hasOpenRouter) {
+      setLoadingBtn(triggerBtn, false, originalBtnHTML);
+      $('mainView').style.display     = 'none';
+      $('settingsView').style.display = 'block';
+      if (stored.apiKey) $('apiKey').value = stored.apiKey;
+      if (stored.orKey)  $('orKey').value  = stored.orKey;
+      refreshProviderUI();
+      const keyInput = $('apiKey');
+      keyInput.focus();
+      keyInput.style.borderColor = '#ef4444';
+      setTimeout(() => { keyInput.style.borderColor = ''; }, 2000);
+      return;
+    }
+
+    // PII-masked copies for external AI calls.
+    // senderVal is intentionally NOT masked — the sender address/domain is a
+    // core spam signal. headerData contains technical fields (domains, TLS)
+    // that are also needed as-is.
+    const maskedSubject = maskPII(subjectVal);
+    const maskedBody    = maskPII(bodyVal);
+
+    // Build ordered list of providers to try based on preference
+    let providerOrder = [];
+    if (hasAnthropic && hasOpenRouter) {
+      providerOrder = preference === 'openrouter'
+        ? ['openrouter', 'anthropic']
+        : ['anthropic', 'openrouter'];
+    } else if (hasAnthropic) {
+      providerOrder = ['anthropic'];
+    } else if (hasOpenRouter) {
+      providerOrder = ['openrouter'];
+    }
 
     let result;
-    if (key && key.startsWith('sk-ant-')) {
+    let lastError = null;
+
+    for (const provider of providerOrder) {
       try {
-        result = await analyzeWithClaude(key, senderVal, subjectVal, bodyVal);
+        if (provider === 'anthropic') {
+          result = await analyzeWithClaude(claudeKey, senderVal, maskedSubject, maskedBody);
+        } else {
+          result = await analyzeWithOpenRouter(orKey, orModel, senderVal, maskedSubject, maskedBody);
+        }
+        break; // success — stop trying
       } catch (e) {
-        console.warn('Claude API error, falling back:', e.message);
-        result = analyzeEmail(senderVal, subjectVal, bodyVal);
-        result.findings.unshift({
-          label: `AI unavailable: ${e.message} — showing heuristic results`,
-          severity: 'low', source: null, snippet: null
-        });
+        console.warn(`${provider} API error, trying next:`, e.message);
+        lastError = e;
       }
-    } else {
-      result = analyzeEmail(senderVal, subjectVal, bodyVal);
     }
+
+    // All AI providers failed — surface the error (no local fallback)
+    if (!result) {
+      throw lastError || new Error('All AI providers failed');
+    }
+
+    // Run header authenticity analysis and blend score
+    const authResult = analyzeHeaders(headerData || {});
+    result.score = Math.min(100, result.score + authResult.addedSpamScore);
+    if      (result.score <= 25) result.verdict = 'safe';
+    else if (result.score <= 55) result.verdict = 'suspicious';
+    else                          result.verdict = 'spam';
+    result.authResult = authResult;
 
     renderResults(result);
   } catch (e) {
@@ -433,8 +837,9 @@ function autoExtractEmail(tabId) {
   $('emailPreviewCard').style.display = 'none';
   $('evaluateRow').style.display      = 'none';
 
-  chrome.tabs.sendMessage(tabId, { action: 'extractEmail' }, response => {
-    if (chrome.runtime.lastError || !response || !response.body) {
+  // ── Handle the extract response (shared by first attempt and retry) ──────────
+  function handleExtractResponse(response) {
+    if (!response || !response.body) {
       setEmailStatus('warn', 'No email open — please open an email first.');
       $('evaluateRow').style.display = 'block'; // show manual fallback link
       return;
@@ -448,9 +853,81 @@ function autoExtractEmail(tabId) {
     const words = response.body.trim().split(/\s+/).length;
     $('previewMeta').textContent    = `${words.toLocaleString()} words extracted`;
 
+    // Show To address in preview card
+    const previewToRow = $('previewToRow');
+    if (previewToRow) {
+      if (response.to) {
+        $('previewTo').textContent = response.to;
+        previewToRow.style.display = '';
+      } else {
+        previewToRow.style.display = 'none';
+      }
+    }
+
+    // Auto-populate header fields from content script data
+    const headerMap = {
+      'hdr-from-em':     response.from     || '',
+      'hdr-replyto-em':  response.replyTo  || '',
+      'hdr-mailedby-em': response.mailedBy || '',
+      'hdr-signedby-em': response.signedBy || '',
+      'hdr-security-em': response.security || '',
+      'hdr-date-em':     response.date     || '',
+    };
+    let anyHeaderFilled = false;
+    for (const [id, val] of Object.entries(headerMap)) {
+      const el = document.getElementById(id);
+      if (el) { el.value = val; }
+      if (el && val) anyHeaderFilled = true;
+    }
+    // Hide rows whose value wasn't auto-filled
+    document.querySelectorAll('#emailHeaderDetails .header-field-row').forEach(row => {
+      const input = row.querySelector('input');
+      if (input) row.style.display = input.value ? '' : 'none';
+    });
+    if (anyHeaderFilled) {
+      const det = document.getElementById('emailHeaderDetails');
+      if (det) det.open = true;
+    }
+
     setEmailStatus('ready', 'Email loaded — ready to evaluate');
     $('emailPreviewCard').style.display = 'block';
     $('evaluateRow').style.display      = 'block';
+  }
+
+  // ── First attempt ─────────────────────────────────────────────────────────────
+  chrome.tabs.sendMessage(tabId, { action: 'extractEmail' }, response => {
+    if (!chrome.runtime.lastError) {
+      // Content script responded normally
+      handleExtractResponse(response);
+      return;
+    }
+
+    // ── Stale context: re-inject content.js and retry ─────────────────────────
+    // This happens whenever the extension is reloaded (e.g. after editing files)
+    // while the email tab is already open. The old content script context becomes
+    // invalid; chrome.scripting.executeScript injects a fresh copy into the tab.
+    chrome.scripting.executeScript(
+      { target: { tabId }, files: ['content.js'] },
+      () => {
+        if (chrome.runtime.lastError) {
+          // Injection failed (e.g. restricted page) — surface the warning
+          setEmailStatus('warn', 'No email open — please open an email first.');
+          $('evaluateRow').style.display = 'block';
+          return;
+        }
+        // Brief pause so the freshly-injected script can register its listener
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, { action: 'extractEmail' }, response2 => {
+            if (chrome.runtime.lastError) {
+              setEmailStatus('warn', 'No email open — please open an email first.');
+              $('evaluateRow').style.display = 'block';
+              return;
+            }
+            handleExtractResponse(response2);
+          });
+        }, 150);
+      }
+    );
   });
 }
 
@@ -470,6 +947,7 @@ $('evaluateBtn').addEventListener('click', () => {
     extractedEmail.sender,
     extractedEmail.subject,
     extractedEmail.body,
+    readHeaderFields('em'),
     $('evaluateBtn'),
     evaluateBtnHTML
   );
@@ -492,11 +970,18 @@ $('emailContent').addEventListener('input', () => {
 });
 
 $('clearBtn').addEventListener('click', () => {
-  $('emailContent').value = '';
-  $('sender').value       = '';
-  $('subject').value      = '';
+  $('emailContent').value    = '';
+  $('sender').value          = '';
+  $('subject').value         = '';
   $('charCount').textContent = '0 characters';
   $('results').style.display = 'none';
+  // Clear manual header fields and close the panel
+  ['from','replyto','mailedby','signedby','security','date'].forEach(f => {
+    const el = document.getElementById(`hdr-${f}-mn`);
+    if (el) el.value = '';
+  });
+  const det = document.getElementById('manualHeaderDetails');
+  if (det) det.open = false;
 });
 
 const analyzeBtnHTML = `
@@ -517,6 +1002,7 @@ $('analyzeBtn').addEventListener('click', () => {
     $('sender').value.trim(),
     $('subject').value.trim(),
     bodyText,
+    readHeaderFields('mn'),
     $('analyzeBtn'),
     analyzeBtnHTML
   );
@@ -544,11 +1030,65 @@ $('analyzeAgainBtn').addEventListener('click', () => {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
+/** Refresh the active-provider bar and ACTIVE tags based on current input values. */
+function refreshProviderUI() {
+  const claudeKey = ($('apiKey').value || '').trim();
+  const orKey     = ($('orKey').value  || '').trim();
+
+  const hasAnthropic  = claudeKey.startsWith('sk-ant-');
+  const hasOpenRouter = orKey.startsWith('sk-or-');
+
+  // Show/hide preference row
+  $('prefRow').style.display = (hasAnthropic && hasOpenRouter) ? 'flex' : 'none';
+
+  // Determine active provider
+  let activeLabel = '';
+  if (hasAnthropic && hasOpenRouter) {
+    const pref = $('prefAnthropic').checked ? 'Anthropic' : 'OpenRouter';
+    activeLabel = `${pref} (preferred) with ${pref === 'Anthropic' ? 'OpenRouter' : 'Anthropic'} as fallback`;
+    $('claudeActiveTag').style.display = $('prefAnthropic').checked ? 'inline' : 'none';
+    $('orActiveTag').style.display     = $('prefOpenRouter').checked ? 'inline' : 'none';
+  } else if (hasAnthropic) {
+    activeLabel = 'Anthropic Claude (active)';
+    $('claudeActiveTag').style.display = 'inline';
+    $('orActiveTag').style.display     = 'none';
+  } else if (hasOpenRouter) {
+    activeLabel = 'OpenRouter (active)';
+    $('claudeActiveTag').style.display = 'none';
+    $('orActiveTag').style.display     = 'inline';
+  } else {
+    $('claudeActiveTag').style.display = 'none';
+    $('orActiveTag').style.display     = 'none';
+  }
+
+  const bar = $('activeProviderBar');
+  if (activeLabel) {
+    $('activeProviderText').textContent = activeLabel;
+    bar.style.display = 'flex';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
 $('settingsBtn').addEventListener('click', () => {
   $('mainView').style.display    = 'none';
   $('settingsView').style.display = 'block';
-  chrome.storage.local.get(['apiKey'], ({ apiKey }) => {
-    if (apiKey) $('apiKey').value = apiKey;
+
+  chrome.storage.local.get(['apiKey', 'orKey', 'orModel', 'aiProvider'], data => {
+    if (data.apiKey) $('apiKey').value = data.apiKey;
+    if (data.orKey)  $('orKey').value  = data.orKey;
+    if (data.orModel) {
+      const sel = $('orModel');
+      for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === data.orModel) { sel.selectedIndex = i; break; }
+      }
+    }
+    if (data.aiProvider === 'openrouter') {
+      $('prefOpenRouter').checked = true;
+    } else {
+      $('prefAnthropic').checked = true;
+    }
+    refreshProviderUI();
   });
 });
 
@@ -562,13 +1102,45 @@ $('toggleKeyBtn').addEventListener('click', () => {
   inp.type = inp.type === 'password' ? 'text' : 'password';
 });
 
+$('toggleOrKeyBtn').addEventListener('click', () => {
+  const inp = $('orKey');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+});
+
+// Refresh UI whenever key fields or preference change
+$('apiKey').addEventListener('input', refreshProviderUI);
+$('orKey').addEventListener('input',  refreshProviderUI);
+$('prefAnthropic').addEventListener('change',   refreshProviderUI);
+$('prefOpenRouter').addEventListener('change',  refreshProviderUI);
+
 $('saveSettingsBtn').addEventListener('click', () => {
-  const key = $('apiKey').value.trim();
-  chrome.storage.local.set({ apiKey: key }, () => {
+  const claudeKey  = $('apiKey').value.trim();
+  const orKey      = $('orKey').value.trim();
+  const orModel    = $('orModel').value;
+  const aiProvider = $('prefOpenRouter').checked ? 'openrouter' : 'anthropic';
+
+  chrome.storage.local.set({ apiKey: claudeKey, orKey, orModel, aiProvider }, () => {
     const st = $('apiStatus');
-    st.textContent = key ? '✓ API key saved — AI analysis enabled.' : 'API key cleared.';
+
+    const hasAnthropic  = claudeKey.startsWith('sk-ant-');
+    const hasOpenRouter = orKey.startsWith('sk-or-');
+
+    let msg;
+    if (hasAnthropic && hasOpenRouter) {
+      msg = `✓ Both providers saved — ${aiProvider === 'openrouter' ? 'OpenRouter' : 'Anthropic'} preferred.`;
+    } else if (hasAnthropic) {
+      msg = '✓ Anthropic key saved — AI analysis enabled.';
+    } else if (hasOpenRouter) {
+      msg = '✓ OpenRouter key saved — AI analysis enabled.';
+    } else {
+      msg = 'Keys cleared — falling back to heuristic engine.';
+    }
+
+    st.textContent = msg;
     st.className   = 'api-status success';
-    setTimeout(() => { st.textContent = ''; st.className = 'api-status'; }, 3000);
+    setTimeout(() => { st.textContent = ''; st.className = 'api-status'; }, 3500);
+
+    refreshProviderUI();
   });
 });
 

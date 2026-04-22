@@ -44,12 +44,50 @@
             <span class="preview-label">From</span>
             <span class="preview-value" id="previewSender">—</span>
           </div>
+          <div class="preview-row" id="previewToRow" style="display:none">
+            <span class="preview-label">To</span>
+            <span class="preview-value" id="previewTo">—</span>
+          </div>
           <div class="preview-row">
             <span class="preview-label">Subject</span>
             <span class="preview-value" id="previewSubject">—</span>
           </div>
           <div class="preview-meta" id="previewMeta"></div>
         </div>
+
+        <!-- Email Headers — collapsible, auto-populated from content script -->
+        <details class="header-details" id="emailHeaderDetails">
+          <summary class="header-details-summary">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+            Email Headers <span class="header-optional">(auto-filled when available)</span>
+          </summary>
+          <div class="header-fields">
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-from-em">From</label>
+              <input type="text" id="hdr-from-em" class="header-field-input" placeholder="Display Name &lt;user@domain.com&gt;" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-replyto-em">Reply-To</label>
+              <input type="text" id="hdr-replyto-em" class="header-field-input" placeholder="reply@domain.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-mailedby-em">Mailed-By</label>
+              <input type="text" id="hdr-mailedby-em" class="header-field-input" placeholder="sendingdomain.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-signedby-em">Signed-By</label>
+              <input type="text" id="hdr-signedby-em" class="header-field-input" placeholder="domain.com (DKIM)" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-security-em">Security</label>
+              <input type="text" id="hdr-security-em" class="header-field-input" placeholder="TLS / Standard" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-date-em">Date</label>
+              <input type="text" id="hdr-date-em" class="header-field-input" placeholder="Mon, 21 Apr 2026 10:00:00 +0000" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+        </details>
 
         <div class="evaluate-row" id="evaluateRow" style="display:none">
           <button class="btn-evaluate" id="evaluateBtn">
@@ -80,6 +118,40 @@
             <span class="char-count" id="charCount">0 characters</span>
           </div>
         </div>
+        <!-- Email Headers — collapsible, manual entry -->
+        <details class="header-details" id="manualHeaderDetails">
+          <summary class="header-details-summary">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6,9 12,15 18,9"/></svg>
+            Email Headers <span class="header-optional">(optional — improves accuracy)</span>
+          </summary>
+          <div class="header-fields">
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-from-mn">From</label>
+              <input type="text" id="hdr-from-mn" class="header-field-input" placeholder="Display Name &lt;user@domain.com&gt;" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-replyto-mn">Reply-To</label>
+              <input type="text" id="hdr-replyto-mn" class="header-field-input" placeholder="reply@domain.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-mailedby-mn">Mailed-By</label>
+              <input type="text" id="hdr-mailedby-mn" class="header-field-input" placeholder="sendingdomain.com" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-signedby-mn">Signed-By</label>
+              <input type="text" id="hdr-signedby-mn" class="header-field-input" placeholder="domain.com (DKIM)" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-security-mn">Security</label>
+              <input type="text" id="hdr-security-mn" class="header-field-input" placeholder="TLS / Standard" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="header-field-row">
+              <label class="header-field-label" for="hdr-date-mn">Date</label>
+              <input type="text" id="hdr-date-mn" class="header-field-input" placeholder="Mon, 21 Apr 2026 10:00:00 +0000" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+        </details>
+
         <div class="action-row">
           <button class="btn-clear" id="clearBtn">Clear</button>
           <button class="btn-analyze" id="analyzeBtn">
@@ -116,6 +188,18 @@
           </div>
         </div>
 
+        <!-- Sender Authenticity section (populated by renderResults) -->
+        <div id="authSection" style="display:none">
+          <div class="auth-section-header">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M12 2L3 7V12C3 16.55 6.84 20.74 12 22C17.16 20.74 21 16.55 21 12V7L12 2Z"/>
+            </svg>
+            Sender Authenticity
+            <span id="authBadge" class="auth-badge"></span>
+          </div>
+          <div id="authChecks" class="auth-checks"></div>
+        </div>
+
         <!-- Section header for findings -->
         <div class="findings-header" id="findingsHeader" style="display:none">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -148,20 +232,81 @@
       </div>
 
       <div class="settings-section">
-        <h3>AI Enhancement (Optional)</h3>
-        <p class="settings-desc">Add your Anthropic API key to enable Claude AI-powered spam detection for higher accuracy.</p>
-        <div class="field">
-          <label for="apiKey">Anthropic API Key</label>
+        <h3>AI Provider <span class="settings-optional">(optional)</span></h3>
+        <p class="settings-desc">Add an API key to unlock AI-powered spam detection. Both Anthropic and OpenRouter are supported.</p>
+
+        <!-- Active provider indicator -->
+        <div class="active-provider-bar" id="activeProviderBar" style="display:none">
+          <span class="active-dot"></span>
+          <span id="activeProviderText"></span>
+        </div>
+
+        <!-- ── Anthropic Claude ───────────────────────────────────────────── -->
+        <div class="provider-block">
+          <div class="provider-header">
+            <span class="provider-logo logo-anthropic">A</span>
+            <div class="provider-info">
+              <span class="provider-name">Anthropic</span>
+              <span class="provider-hint">Claude Haiku · keys start with sk-ant-</span>
+            </div>
+            <span class="provider-active-tag" id="claudeActiveTag" style="display:none">ACTIVE</span>
+          </div>
           <div class="api-key-row">
             <input type="password" id="apiKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
-            <button class="btn-toggle-key" id="toggleKeyBtn" title="Show/hide key">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
+            <button class="btn-toggle-key" id="toggleKeyBtn" title="Show/hide">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
               </svg>
             </button>
           </div>
         </div>
+
+        <!-- ── Divider ───────────────────────────────────────────────────── -->
+        <div class="provider-divider"><span>or</span></div>
+
+        <!-- ── OpenRouter ────────────────────────────────────────────────── -->
+        <div class="provider-block">
+          <div class="provider-header">
+            <span class="provider-logo logo-openrouter">OR</span>
+            <div class="provider-info">
+              <span class="provider-name">OpenRouter</span>
+              <span class="provider-hint">50+ models · keys start with sk-or-</span>
+            </div>
+            <span class="provider-active-tag" id="orActiveTag" style="display:none">ACTIVE</span>
+          </div>
+          <div class="api-key-row">
+            <input type="password" id="orKey" placeholder="sk-or-…" autocomplete="off" spellcheck="false">
+            <button class="btn-toggle-key" id="toggleOrKeyBtn" title="Show/hide">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+          <div class="field" style="margin-top:8px">
+            <label for="orModel">Model</label>
+            <select id="orModel" class="model-select">
+              <option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5 — fast &amp; cheap</option>
+              <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5 — balanced</option>
+              <option value="openai/gpt-4o-mini">GPT-4o Mini — fast &amp; cheap</option>
+              <option value="openai/gpt-4o">GPT-4o — powerful</option>
+              <option value="google/gemini-flash-1.5">Gemini Flash 1.5 — fast</option>
+              <option value="google/gemini-pro-1.5">Gemini Pro 1.5 — balanced</option>
+              <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B — open source</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ── Preferred provider (shown when both keys are set) ─────────── -->
+        <div class="pref-row" id="prefRow" style="display:none">
+          <span class="pref-label">Prefer:</span>
+          <label class="pref-option">
+            <input type="radio" name="aiProvider" id="prefAnthropic" value="anthropic" checked> Anthropic
+          </label>
+          <label class="pref-option">
+            <input type="radio" name="aiProvider" id="prefOpenRouter" value="openrouter"> OpenRouter
+          </label>
+        </div>
+
         <div class="api-status" id="apiStatus"></div>
         <button class="btn-save" id="saveSettingsBtn">Save Settings</button>
       </div>
@@ -169,9 +314,9 @@
       <div class="settings-section">
         <h3>About</h3>
         <p class="settings-desc">
-          Spam Shield v1.1.0<br>
+          Spam Shield v1.2.0<br>
           Auto-reads open emails from Gmail, Outlook, Yahoo Mail &amp; Proton Mail.<br>
-          Uses heuristic analysis + optional Claude AI.
+          AI via Anthropic Claude or OpenRouter · falls back to built-in heuristics.
         </p>
       </div>
     </div>

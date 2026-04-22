@@ -7,7 +7,9 @@ function extractGmail() {
   const body =
     document.querySelector('.a3s.aiL') ||
     document.querySelector('.ii.gt .a3s') ||
-    document.querySelector('[data-message-id] .a3s');
+    document.querySelector('[data-message-id] .a3s') ||
+    document.querySelector('.gs .ii .a3s') ||
+    document.querySelector('[role="main"] .a3s');
 
   const subjectEl =
     document.querySelector('h2.hP') ||
@@ -18,10 +20,87 @@ function extractGmail() {
     document.querySelector('[email].gD') ||
     document.querySelector('span[email]');
 
+  // ── Header fields (visible when user expands email details in Gmail) ──────────
+  // These selectors target the expanded header detail row Gmail renders when the
+  // user clicks the caret next to "to: me". Absence is treated as empty string —
+  // a selector regression degrades silently to "no header data" rather than crash.
+
+  // Mailed-by: appears in .aZo when detail row is expanded
+  const mailedByEl =
+    document.querySelector('.aZo') ||
+    document.querySelector('.bzB');
+  const mailedBy = mailedByEl ? mailedByEl.innerText.replace(/^mailed-by:\s*/i, '').trim() : '';
+
+  // Signed-by (DKIM): adjacent row .aZp
+  const signedByEl = document.querySelector('.aZp');
+  const signedBy = signedByEl ? signedByEl.innerText.replace(/^signed-by:\s*/i, '').trim() : '';
+
+  // Security/TLS: lock icon tooltip or visible text
+  const securityEl =
+    document.querySelector('[data-tooltip*="TLS"]') ||
+    document.querySelector('[data-tooltip*="ncryption"]') ||
+    document.querySelector('.iweboffl');
+  const security = securityEl
+    ? (securityEl.getAttribute('data-tooltip') || securityEl.innerText).replace(/\n/g, ' ').trim()
+    : '';
+
+  // Date: .g3 (short label) or .gK with title attr (full RFC date)
+  const dateEl =
+    document.querySelector('.g3') ||
+    document.querySelector('.gK');
+  const emailDate = dateEl
+    ? (dateEl.getAttribute('title') || dateEl.getAttribute('aria-label') || dateEl.innerText).trim()
+    : '';
+
+  // Full From header — reconstruct "Display Name <email>" from the sender element
+  let fullFrom = '';
+  if (senderEl) {
+    const name  = senderEl.getAttribute('name') || senderEl.innerText.trim();
+    const email = senderEl.getAttribute('email') || '';
+    fullFrom = email ? `${name} <${email}>` : name;
+  }
+
+  // Reply-To: shown in expanded header details when different from From.
+  // Gmail uses .aZo/.aZp for mailed-by/signed-by; reply-to may appear as a
+  // sibling row — scan all such elements for "reply-to" label text.
+  let replyTo = '';
+  const detailEls = document.querySelectorAll('.aZo, .aZp, .aZq, .aZr, .aZs, .aZt');
+  for (const el of detailEls) {
+    if (/reply.?to/i.test(el.innerText || '')) {
+      replyTo = el.innerText.replace(/^reply.?to[:\s]*/i, '').trim();
+      break;
+    }
+  }
+
+  // To recipients: .aeF is the "to" area; .g2 are individual recipient spans
+  let to = '';
+  const toSpans = document.querySelectorAll('.aeF .g2');
+  if (toSpans.length > 0) {
+    to = Array.from(toSpans)
+      .map(el => el.getAttribute('email') || el.innerText.trim())
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (!to) {
+    // Fallback: any visible span with an email attribute in the header region
+    const fallbackToEl = document.querySelector('.aDi [email], [email].g2');
+    if (fallbackToEl) {
+      to = fallbackToEl.getAttribute('email') || fallbackToEl.innerText.trim();
+    }
+  }
+
   return {
-    body: body ? body.innerText.trim() : '',
-    subject: subjectEl ? subjectEl.innerText.trim() : '',
-    sender: senderEl ? (senderEl.getAttribute('email') || senderEl.innerText.trim()) : ''
+    body:     body      ? body.innerText.trim()                                         : '',
+    subject:  subjectEl ? subjectEl.innerText.trim()                                    : '',
+    sender:   senderEl  ? (senderEl.getAttribute('email') || senderEl.innerText.trim()) : '',
+    // Header fields (empty string when not available)
+    from:     fullFrom,
+    replyTo,
+    mailedBy,
+    signedBy,
+    security,
+    date:     emailDate,
+    to,
   };
 }
 
@@ -46,7 +125,8 @@ function extractOutlook() {
   return {
     body: body ? body.innerText.trim() : '',
     subject: subjectEl ? subjectEl.innerText.trim() : '',
-    sender: senderEl ? (senderEl.getAttribute('title') || senderEl.innerText.trim()) : ''
+    sender: senderEl ? (senderEl.getAttribute('title') || senderEl.innerText.trim()) : '',
+    from: '', replyTo: '', mailedBy: '', signedBy: '', security: '', date: '', to: ''
   };
 }
 
@@ -67,7 +147,8 @@ function extractYahooMail() {
   return {
     body: body ? body.innerText.trim() : '',
     subject: subjectEl ? subjectEl.innerText.trim() : '',
-    sender: senderEl ? senderEl.innerText.trim() : ''
+    sender: senderEl ? senderEl.innerText.trim() : '',
+    from: '', replyTo: '', mailedBy: '', signedBy: '', security: '', date: '', to: ''
   };
 }
 
@@ -88,14 +169,15 @@ function extractProtonMail() {
   return {
     body: body ? body.innerText.trim() : '',
     subject: subjectEl ? subjectEl.innerText.trim() : '',
-    sender: senderEl ? senderEl.innerText.trim() : ''
+    sender: senderEl ? senderEl.innerText.trim() : '',
+    from: '', replyTo: '', mailedBy: '', signedBy: '', security: '', date: '', to: ''
   };
 }
 
 function extractEmail() {
   const url = window.location.href;
 
-  let result = { body: '', subject: '', sender: '' };
+  let result = { body: '', subject: '', sender: '', from: '', replyTo: '', mailedBy: '', signedBy: '', security: '', date: '', to: '' };
 
   if (url.includes('mail.google.com')) {
     result = extractGmail();
