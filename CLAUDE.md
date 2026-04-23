@@ -31,7 +31,7 @@ After editing any file, click the reload icon on the extension card and re-open 
 | `manifest.json` | MV3 manifest — permissions (`activeTab`, `storage`, `scripting`), host permissions for all four webmail clients, content script injection, service worker declaration |
 | `background.js` | Minimal service worker; responds to `{ action: 'ping' }` to confirm the extension is alive |
 | `content.js` | Injected into supported webmail pages at `document_idle`; one DOM scraper per client (`extractGmail`, `extractOutlook`, `extractYahooMail`, `extractProtonMail`); responds to `{ action: 'extractEmail' }` messages |
-| `popup.js` | All UI logic, analysis engine, AI API calls, and results rendering |
+| `popup.js` | All UI logic, AI API calls, header analysis, and results rendering |
 | `popup.html` | Two views: `#mainView` (email mode + manual mode + results panel) and `#settingsView` (API key / provider config) |
 | `popup.css` | All styles |
 | `icons/` | `icon16.png`, `icon48.png`, `icon128.png` — generate via `generate-icons.js` (Node) or `generate_icons.html` (browser canvas) |
@@ -41,17 +41,17 @@ After editing any file, click the reload icon on the extension card and re-open 
 `runAnalysis(senderVal, subjectVal, bodyVal, headerData, triggerBtn, originalBtnHTML)` is the single entry point for both modes. It:
 
 1. Loads `apiKey`, `orKey`, `orModel`, `aiProvider` from `chrome.storage.local`
-2. Determines provider order based on which keys are present and the saved preference:
+2. **If no valid key is present**, resets the button, navigates to `#settingsView`, and flashes the API key input — analysis does not proceed
+3. Determines provider order based on which keys are present and the saved preference:
    - Both keys → preferred provider first, other as fallback
    - One key → use it directly
-   - No keys → skip to heuristic
-3. Iterates provider order, calling `analyzeWithClaude()` or `analyzeWithOpenRouter()`; catches errors and falls through to the next
-4. Falls back to `analyzeEmail()` (local heuristic) if all AI calls fail
-5. Calls `analyzeHeaders(headerData)` and blends `addedSpamScore` (up to +30) into the content score
-6. Re-derives verdict from the blended score
-7. Calls `renderResults({ score, verdict, findings, authResult })`
+4. Iterates provider order, calling `analyzeWithClaude()` or `analyzeWithOpenRouter()`; catches errors and falls through to the next
+5. If all AI calls fail, throws the last error (no local fallback)
+6. Calls `analyzeHeaders(headerData)` and blends `addedSpamScore` (up to +30) into the content score
+7. Re-derives verdict from the blended score
+8. Calls `renderResults({ score, verdict, findings, authResult })`
 
-**Heuristic engine** (`analyzeEmail`): three-tier rule set in `SPAM_RULES` (`critical` / `high` / `medium`) with weighted scoring (15 / 8 / 3 per tier). Structural checks (ALL-CAPS ratio, exclamation count, suspicious/shortened URLs, sender domain spoofing against known brands) add additional score. Score ≤25 → safe, ≤55 → suspicious, >55 → spam. Each finding includes an `extractSnippet()` result — ±60 chars of context around the match, split into `{ before, matched, after }` for highlighted rendering.
+**Local heuristic engine is disabled** — `SPAM_RULES`, `WEIGHTS`, `analyzeEmail`, and `extractSnippet` are all commented out. An API key is required.
 
 **Claude path** (`analyzeWithClaude`): POSTs to `https://api.anthropic.com/v1/messages` with model `claude-haiku-4-5-20251001`. Requires the `anthropic-dangerous-direct-browser-access: true` header for direct browser calls. Parses response from `data.content[0].text`.
 
@@ -76,16 +76,20 @@ MAX_DEMERITS = 135. `probability = 100 − (demerits / 135 × 100)`. `addedSpamS
 `extractGmail()` returns the full set:
 
 ```js
-{ body, subject, sender, from, mailedBy, signedBy, security, date }
+{ body, subject, sender, from, replyTo, mailedBy, signedBy, security, date, to }
 ```
 
-`extractOutlook()`, `extractYahooMail()`, `extractProtonMail()` return the base set only:
+`extractOutlook()`, `extractYahooMail()`, `extractProtonMail()` return the base set only (extended fields default to `''`):
 
 ```js
-{ body, subject, sender }
+{ body, subject, sender, from: '', replyTo: '', mailedBy: '', signedBy: '', security: '', date: '', to: '' }
 ```
 
-Gmail header selectors (`.aZo`, `.aZp`, `.g3`, `.gK`, etc.) are best-effort — absence is treated as empty string, not an error. The default result object initialises all eight keys to `''` so callers never see `undefined`.
+Gmail header selectors (`.aZo`, `.aZp`, `.g3`, `.gK`, `.aeF .g2`, etc.) are best-effort — absence is treated as empty string, not an error. All ten keys are always present so callers never see `undefined`.
+
+**To address** is displayed in the email preview card with the local part masked (`jo***@gmail.com`). It is not passed to `analyzeHeaders`.
+
+**Mailed-By** is populated into a hidden input (`hdr-mailedby-em` / `hdr-mailedby-mn`, `data-always-hidden="true"`) so `readHeaderFields()` can pass it to `analyzeHeaders()` without showing it in the UI. The auto-fill loop that hides empty header rows skips rows marked `data-always-hidden`.
 
 ### Settings / storage
 
@@ -102,14 +106,16 @@ All values stored in `chrome.storage.local` (device-local, not synced across pro
 
 | Direction | Message | Response |
 |-----------|---------|----------|
-| `popup.js` → `content.js` | `{ action: 'extractEmail' }` | `{ body, subject, sender, from, mailedBy, signedBy, security, date }` |
+| `popup.js` → `content.js` | `{ action: 'extractEmail' }` | `{ body, subject, sender, from, replyTo, mailedBy, signedBy, security, date, to }` |
 | `popup.js` → `background.js` | `{ action: 'ping' }` | `{ status: 'ok' }` |
 
-### PII masking (`maskPII`)
+### PII masking
 
-`maskPII(text)` is called in `runAnalysis()` on `subjectVal` and `bodyVal` **before** either value is passed to any external AI provider. The heuristic engine runs on-device and receives the original unmasked text.
+**`maskPII(text)`** is called on `subjectVal` and `bodyVal` before sending to any AI provider. `senderVal` and `headerData` are not masked — they contain technical spam signals that must remain intact.
 
-`senderVal` and `headerData` are intentionally **not** masked — they contain technical spam signals (domain names, DKIM selectors, TLS flags) that must remain intact for accurate detection.
+**`maskToAddress(str)`** masks the local part of To addresses shown in the preview card (`jo***@gmail.com`). Handles comma-separated lists and `Name <email>` format. The domain is always left in clear.
+
+Patterns masked by `maskPII` and their replacement tokens:
 
 Patterns masked and their replacement tokens:
 
@@ -132,6 +138,7 @@ Unlabelled structured IDs (Medicare numbers, national IDs) are only matched when
 
 ## Key constraints
 
+- **API key required** — the local heuristic engine (`SPAM_RULES`, `analyzeEmail`, `extractSnippet`) is commented out. If no valid key is present when analysis is triggered, the user is redirected to settings.
 - **No build tooling** — plain ES5-compatible JS; no bundler, no npm, no TypeScript.
 - JSON from AI responses must be extracted with `/\{[\s\S]*\}/` because models sometimes add prose around JSON.
 - `apexDomain()` extracts only the last two domain labels for alignment checks, so `mail.paypal.com` correctly aligns with `paypal.com`.
@@ -146,3 +153,4 @@ Unlabelled structured IDs (Medicare numbers, national IDs) are only matched when
 | 1.0.0 | Initial release — heuristic engine, Gmail/Outlook/Yahoo/Proton auto-extract, Anthropic Claude support |
 | 1.1.0 | Email header analysis — Mailed-by, DKIM, Reply-To, TLS, brand spoof, date validity; Sender Authenticity panel in results |
 | 1.2.0 | OpenRouter support — dual-provider settings UI, provider preference + fallback chain, 7 model options |
+| 1.3.0 | AI required — local heuristic disabled; settings redirect when no key; Gmail extracts Reply-To and To; To shown (masked) in preview; Mailed-By hidden from UI; empty header rows auto-hidden |

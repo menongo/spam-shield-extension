@@ -7,12 +7,12 @@ A Manifest V3 browser extension for Chrome, Edge, and Brave that detects spam, p
 ## Features
 
 - **Auto-reads open emails** from Gmail, Outlook, Yahoo Mail, and Proton Mail — no copy-pasting required
-- **Header authenticity analysis** — checks Mailed-by, DKIM Signed-by, Reply-To, TLS encryption, display-name brand spoofing, and email date validity to produce a Sender Authenticity probability score
+- **Header authenticity analysis** — checks DKIM Signed-by, Reply-To, TLS encryption, display-name brand spoofing, and email date validity to produce a Sender Authenticity probability score
 - **Highlighted findings** — flags suspicious phrases with exact quotes and surrounding context
-- **AI-powered analysis** via Anthropic Claude or OpenRouter (optional) — falls back to the built-in heuristic engine if no key is configured
+- **AI-powered analysis** via Anthropic Claude or OpenRouter — an API key is required
 - **Dual-provider support** — add one or both API keys; set a preferred provider with automatic fallback
 - **Manual mode** — works on any page; paste the sender, subject, body, and header fields yourself
-- **No data collection** — all analysis happens locally or via your own API key; nothing is sent to third-party servers except the AI provider you configure
+- **No data collection** — analysis runs via your own API key; nothing is sent to any server other than the AI provider you configure
 
 ---
 
@@ -59,11 +59,9 @@ Flagged sections list the specific phrases or patterns that triggered the score,
 
 ---
 
-## AI Enhancement (optional)
+## AI Setup (required)
 
-Without an API key the extension uses its built-in heuristic rule engine — no setup required.
-
-Adding an API key enables AI-powered analysis for more nuanced, context-aware verdicts.
+An API key is required to use Spam Shield. If no key is configured when you click Evaluate or Analyze, the extension opens the Settings screen automatically.
 
 ### Anthropic
 
@@ -102,12 +100,12 @@ The active provider is shown in a green bar at the top of the settings page.
 
 | Client | Auto-extract | Header fields auto-filled |
 |--------|-------------|--------------------------|
-| Gmail | Yes | From, Mailed-by, Signed-by, Security, Date |
+| Gmail | Yes | From, Reply-To, Signed-by, Security, Date; To shown (masked) in preview |
 | Outlook (live / office / office365) | Yes | Sender only |
 | Yahoo Mail | Yes | Sender only |
 | Proton Mail | Yes | Sender only |
 
-Header fields not extracted automatically can be filled in manually by expanding the **Email Headers** panel before clicking Evaluate.
+Header rows with no extracted value are hidden automatically. Fields not extracted automatically can be filled in manually by expanding the **Email Headers** panel before clicking Evaluate.
 
 ---
 
@@ -115,9 +113,7 @@ Header fields not extracted automatically can be filled in manually by expanding
 
 ### What leaves your device
 
-When an AI provider key is configured, the email's **sender address**, **masked subject**, and **masked body** are sent to your chosen provider (Anthropic or OpenRouter) over HTTPS. No data is ever sent to any other server.
-
-When no key is configured, analysis runs entirely on-device using the built-in heuristic engine — nothing leaves your browser.
+The email's **sender address**, **masked subject**, and **masked body** are sent to your chosen AI provider (Anthropic or OpenRouter) over HTTPS. No data is ever sent to any other server.
 
 ### PII masking before AI calls
 
@@ -137,9 +133,9 @@ Before the subject line or email body is sent to an AI provider, the extension a
 | Driver's licence numbers (when labelled) | `[DL REDACTED]` |
 | National / health insurance IDs (when labelled) | `[ID REDACTED]` |
 
-The sender address and email header fields (Mailed-by, DKIM, TLS etc.) are **not** masked — they are technical spam signals that must remain intact for accurate detection.
+The sender address and email header fields (DKIM, TLS, etc.) are **not** masked — they are technical spam signals that must remain intact for accurate detection.
 
-The built-in heuristic engine processes the original unmasked text on-device; no masking is needed because no data leaves the browser.
+**To addresses** displayed in the preview card are masked locally (`jo***@gmail.com`) — the original is never shown in the UI and is not sent to any AI provider.
 
 ### Other privacy points
 
@@ -189,6 +185,7 @@ See `CLAUDE.md` for architecture details, analysis pipeline internals, and key c
 
 | Version | What changed |
 |---------|-------------|
+| 1.3.0 | AI required — settings redirect when no key; Gmail extracts Reply-To and To; To shown masked in preview; Mailed-By hidden from UI; empty header rows auto-hidden |
 | 1.2.0 | OpenRouter support — dual-provider settings, provider preference + fallback, 7 model choices |
 | 1.1.0 | Email header analysis — Sender Authenticity panel with Mailed-by, DKIM, Reply-To, TLS, brand spoof, date checks |
 | 1.0.0 | Initial release — heuristic engine, Gmail/Outlook/Yahoo/Proton auto-extract, Anthropic Claude support |

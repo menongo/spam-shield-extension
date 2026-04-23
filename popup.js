@@ -2,6 +2,24 @@
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Mask the local part of an email address, keeping the domain visible.
+ *  "john.doe@gmail.com" → "jo***@gmail.com"
+ *  Handles "Display Name <email>" and comma-separated lists. */
+function maskToAddress(str) {
+  if (!str) return str;
+  return str.split(',').map(part => {
+    part = part.trim();
+    const angleMatch = part.match(/^[^<]*<([^>]+)>$/);
+    const addr = angleMatch ? angleMatch[1].trim() : part;
+    const atIdx = addr.indexOf('@');
+    if (atIdx < 1) return part; // not a recognisable email
+    const local = addr.slice(0, atIdx);
+    const domain = addr.slice(atIdx + 1);
+    const visible = local.length >= 2 ? local.slice(0, 2) : local[0];
+    return `${visible}***@${domain}`;
+  }).join(', ');
+}
+
 function escapeHtml(str) {
   return str
     .replace(/&/g, '&amp;')
@@ -857,7 +875,7 @@ function autoExtractEmail(tabId) {
     const previewToRow = $('previewToRow');
     if (previewToRow) {
       if (response.to) {
-        $('previewTo').textContent = response.to;
+        $('previewTo').textContent = maskToAddress(response.to);
         previewToRow.style.display = '';
       } else {
         previewToRow.style.display = 'none';
@@ -879,8 +897,9 @@ function autoExtractEmail(tabId) {
       if (el) { el.value = val; }
       if (el && val) anyHeaderFilled = true;
     }
-    // Hide rows whose value wasn't auto-filled
+    // Hide rows with no auto-filled value; skip rows permanently hidden by data-always-hidden
     document.querySelectorAll('#emailHeaderDetails .header-field-row').forEach(row => {
+      if (row.dataset.alwaysHidden) return;
       const input = row.querySelector('input');
       if (input) row.style.display = input.value ? '' : 'none';
     });
@@ -1133,7 +1152,7 @@ $('saveSettingsBtn').addEventListener('click', () => {
     } else if (hasOpenRouter) {
       msg = '✓ OpenRouter key saved — AI analysis enabled.';
     } else {
-      msg = 'Keys cleared — falling back to heuristic engine.';
+      msg = 'Keys cleared — AI analysis disabled.';
     }
 
     st.textContent = msg;
